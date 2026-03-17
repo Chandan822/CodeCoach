@@ -4,6 +4,8 @@ const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
+const cron = require('node-cron');
+const axios = require('axios');
 
 dotenv.config();
 
@@ -34,4 +36,15 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+// Cron job: ping the server every 14 minutes to keep it alive
+cron.schedule('*/14 * * * *', async () => {
+  try {
+    const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+    const response = await axios.get(`${BASE_URL}/`);
+    console.log(`[Cron] Keep-alive ping sent. Status: ${response.status}`);
+  } catch (err) {
+    console.error('[Cron] Keep-alive ping failed:', err.message);
+  }
 });
