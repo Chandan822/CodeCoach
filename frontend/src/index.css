@@ -1,0 +1,27 @@
+*{
+  padding:0;
+  box-sizing: border-box;
+  margin:0;
+}
+
+html, body, #root {
+  height:100%;
+  width:100%;
+  background: #212121; /* match app background so edges don't show white */
+}
+
+#root{
+  height:100vh;
+  display:flex;
+}
+
+/* Ensure the immediate app child fills the root (prevents a white strip when flex sizing shrinks)
+   and avoid horizontal scrollbars from accidental overflow */
+#root > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
