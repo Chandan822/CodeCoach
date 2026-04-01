@@ -19,26 +19,51 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
+const normalizeOrigin = (value) => value?.trim().replace(/\/$/, '');
+
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
   ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : []),
   'http://localhost:5173',
   'http://localhost:3000',
-].filter(Boolean);
+]
+  .map(normalizeOrigin)
+  .filter(Boolean);
+
+const allowedOriginSet = new Set(allowedOrigins);
 
 const corsOptions = {
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin) {
       return callback(null, true);
     }
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
+
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOriginSet.has(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    try {
+      const { hostname } = new URL(normalizedOrigin);
+      if (hostname.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+    } catch (error) {
+      console.warn(`Invalid request origin: ${origin}`);
+    }
+
+    console.warn(`CORS blocked for origin: ${origin}`);
+    return callback(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 };
 
 // Middleware
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
 // MongoDB Connection
