@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import "../Login.css";
+import api from "../api/axios";
 
 function Login() {
   const [isLogin, setIsLogin] = useState(true);
@@ -18,22 +19,21 @@ function Login() {
     setError("");
     setLoading(true);
     try {
-      const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
-      const response = await fetch(`https://codecoach-tslg.onrender.com${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-      const data = await response.json();
-      if (response.ok) {
+      const endpoint = isLogin ? "/auth/login" : "/auth/register";
+      const payload = isLogin
+        ? { email: formData.email, password: formData.password }
+        : formData;
+      const { data } = await api.post(endpoint, payload);
+
+      if (data?.token && data?.user) {
         localStorage.setItem("token", data.token);
         localStorage.setItem("userName", data.user.name);
         navigate('/chat');
       } else {
-        setError(data.message || "Something went wrong");
+        setError("Invalid server response. Please try again.");
       }
     } catch (err) {
-      setError("Failed to connect to server");
+      setError(err?.response?.data?.message || "Failed to connect to server");
     } finally {
       setLoading(false);
     }

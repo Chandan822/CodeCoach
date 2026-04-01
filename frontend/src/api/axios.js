@@ -1,7 +1,9 @@
 import axios from 'axios';
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
 const api = axios.create({
-  baseURL: 'https://codecoach-tslg.onrender.com/api', // Backend base URL
+  baseURL: apiBaseUrl.replace(/\/$/, ''),
 });
 
 // Request interceptor to attach JWT token
