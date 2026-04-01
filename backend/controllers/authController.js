@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 
 const ensureJwtSecret = (res) => {
@@ -12,6 +13,10 @@ const ensureJwtSecret = (res) => {
 // Register a new user
 exports.register = async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: 'Service unavailable: database not connected' });
+    }
+
     const { name, email, password } = req.body;
 
     if (!name || !email || !password) {
@@ -55,13 +60,21 @@ exports.register = async (req, res) => {
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error during registration' });
+    res.status(500).json({
+      message: process.env.NODE_ENV === 'production'
+        ? 'Server error during registration'
+        : `Server error during registration: ${error.message}`,
+    });
   }
 };
 
 // Login user
 exports.login = async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: 'Service unavailable: database not connected' });
+    }
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -102,7 +115,11 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login' });
+    res.status(500).json({
+      message: process.env.NODE_ENV === 'production'
+        ? 'Server error during login'
+        : `Server error during login: ${error.message}`,
+    });
   }
 };
 

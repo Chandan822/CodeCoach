@@ -33,7 +33,15 @@ function Login() {
         setError("Invalid server response. Please try again.");
       }
     } catch (err) {
-      setError(err?.response?.data?.message || "Failed to connect to server");
+      const serverMessage = err?.response?.data?.message;
+      const status = err?.response?.status;
+      if (serverMessage) {
+        setError(serverMessage);
+      } else if (status) {
+        setError(`Request failed with status ${status}. Check backend URL/config.`);
+      } else {
+        setError("Failed to connect to server");
+      }
     } finally {
       setLoading(false);
     }
