@@ -1,6 +1,6 @@
-# CodeCoach / NovaChat 🚀
+#  NovaChat 🚀
 
-NovaChat (CodeCoach) is a premium, full-stack AI Chat assistant application featuring real-time conversational capabilities, web search integration, text-to-image generation, and robust multi-file analysis capabilities. The project is split into a robust Node.js/Express backend powered by MongoDB and a highly responsive, modern React + Vite frontend.
+NovaChat is a premium, full-stack AI Chat assistant application featuring real-time conversational capabilities, web search integration, text-to-image generation, and robust multi-file analysis capabilities. The project is split into a robust Node.js/Express backend powered by MongoDB and a highly responsive, modern React + Vite frontend.
 
 ---
 
