@@ -65,14 +65,24 @@ const MAX_IMAGE_FILES = 5;
 const MAX_TEXT_FILES = 2;
 const MAX_TEXT_FILE_SIZE_BYTES = 1 * 1024 * 1024;
 const NOVA_SYSTEM_PROMPT = "You are NovaChat, a highly capable, creative, and clever AI assistant. You can help with writing, analysis, learning, coding, calculations, and general conversation. Output responses using clean, well-formatted markdown. If generating code, use markdown code blocks with the correct language tag.";
-const DEFAULT_TEXT_MODEL = 'llama-3.3-70b-versatile';
-const VISION_MODEL = 'llama-3.2-11b-vision-preview';
-const ALLOWED_MODELS = new Set([
-  'llama-3.3-70b-versatile',
-  'qwen/qwen3-32b',
+// Keep these IDs in sync with the currently hosted Groq models. Retired model
+// IDs are rejected by Groq and would otherwise surface to clients as a 502.
+const DEFAULT_TEXT_MODEL = 'openai/gpt-oss-20b';
+const VISION_MODEL = 'qwen/qwen3.6-27b';
+const MISTRAL_DEFAULT_TEXT_MODEL = 'mistral-small-latest';
+const MISTRAL_VISION_MODEL = 'mistral-small-latest';
+const GROQ_MODELS = new Set([
   'openai/gpt-oss-20b',
-  'llama-3.1-8b-instant'
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.6-27b'
 ]);
+const MISTRAL_MODELS = new Set([
+  'mistral-large-latest',
+  'mistral-medium-latest',
+  'mistral-small-latest',
+  'codestral-latest'
+]);
+const ALLOWED_MODELS = new Set([...GROQ_MODELS, ...MISTRAL_MODELS]);
 
 const getGroqKeys = () => {
   const envKeys = process.env.GROQ_API_KEYS
@@ -95,6 +105,111 @@ const getApiKeyForUser = (userId, keys) => {
   }
   const index = Math.abs(hash) % keys.length;
   return keys[index];
+};
+
+const getApiKeysForRequest = (userId, keys) => {
+  const primaryKey = getApiKeyForUser(userId, keys);
+  if (!primaryKey) return [];
+  return [primaryKey, ...keys.filter((key) => key !== primaryKey)];
+};
+
+const getMistralKeys = () => {
+  const apiKey = process.env.MISTRAL_API_KEY?.trim();
+  return apiKey ? [apiKey] : [];
+};
+
+const getProviderForModel = (model) => MISTRAL_MODELS.has(model) ? 'mistral' : 'groq';
+
+const getGroqErrorStatus = (error) => Number(
+  error?.status || error?.statusCode || error?.response?.status || 0
+);
+
+const getGroqErrorMessage = (error) => {
+  if (typeof error?.error === 'string') return error.error;
+  if (error?.error?.message) return error.error.message;
+  if (error?.response?.data?.error?.message) return error.response.data.error.message;
+  return error?.message || 'Unknown provider error';
+};
+
+const getGroqRetryAfter = (error) => {
+  if (typeof error?.headers?.get === 'function') {
+    return error.headers.get('retry-after');
+  }
+  return error?.headers?.['retry-after'] || null;
+};
+
+const isRetryableGroqError = (error) => [401, 403, 429, 500, 502, 503].includes(getGroqErrorStatus(error));
+
+const createCompletionWithKeyFallback = async ({ apiKeys, model, messages }) => {
+  let lastError;
+
+  for (const apiKey of apiKeys) {
+    try {
+      const groq = new Groq({ apiKey });
+      return await groq.chat.completions.create({ messages, model });
+    } catch (error) {
+      lastError = error;
+      console.error(`Groq request failed for one configured key (status ${getGroqErrorStatus(error) || 'unknown'}):`, getGroqErrorMessage(error));
+
+      if (!isRetryableGroqError(error)) break;
+    }
+  }
+
+  throw lastError;
+};
+
+const toMistralMessages = (messages) => messages.map((message) => ({
+  ...message,
+  content: Array.isArray(message.content)
+    ? message.content.map((part) => part.type === 'image_url'
+      ? { ...part, image_url: part.image_url?.url || part.image_url }
+      : part)
+    : message.content,
+}));
+
+const createMistralCompletion = async ({ apiKey, model, messages }) => {
+  try {
+    const response = await axios.post(
+      'https://api.mistral.ai/v1/chat/completions',
+      {
+        model,
+        messages: toMistralMessages(messages),
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 60000,
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    const providerError = new Error(getGroqErrorMessage(error));
+    providerError.status = getGroqErrorStatus(error);
+    providerError.headers = error.response?.headers;
+    providerError.response = error.response;
+    throw providerError;
+  }
+};
+
+const createProviderCompletion = async ({ provider, apiKeys, model, messages }) => {
+  if (provider === 'mistral') {
+    return createMistralCompletion({ apiKey: apiKeys[0], model, messages });
+  }
+
+  return createCompletionWithKeyFallback({ apiKeys, model, messages });
+};
+
+const normalizeAssistantContent = (content) => {
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => typeof part === 'string' ? part : part?.text || '')
+      .join('');
+  }
+
+  return typeof content === 'string' ? content : '';
 };
 
 // Helper to extract code snippets from markdown text
@@ -150,11 +265,14 @@ const fallbackSummary = (messages) => messages
   })
   .join('\n');
 
-const summarizeMessages = async (groq, messages) => {
+const summarizeMessages = async (provider, apiKeys, messages) => {
   if (messages.length === 0) return null;
 
   try {
-    const result = await groq.chat.completions.create({
+    const result = await createProviderCompletion({
+      provider,
+      apiKeys,
+      model: provider === 'mistral' ? MISTRAL_DEFAULT_TEXT_MODEL : DEFAULT_TEXT_MODEL,
       messages: [
         {
           role: 'system',
@@ -165,7 +283,6 @@ const summarizeMessages = async (groq, messages) => {
           content: `Summarize this older conversation in 8 short bullet points or fewer:\n\n${formatTranscript(messages)}`,
         },
       ],
-      model: DEFAULT_TEXT_MODEL,
     });
 
     return result.choices[0]?.message?.content?.trim() || fallbackSummary(messages);
@@ -175,7 +292,7 @@ const summarizeMessages = async (groq, messages) => {
   }
 };
 
-const buildContextMessages = async (groq, allMessages) => {
+const buildContextMessages = async (provider, apiKeys, allMessages) => {
   const groqMessages = toGroqMessages(allMessages);
   const recentMessages = groqMessages.slice(-CONTEXT_MESSAGE_LIMIT);
   const olderMessages = groqMessages.slice(0, -CONTEXT_MESSAGE_LIMIT);
@@ -184,7 +301,7 @@ const buildContextMessages = async (groq, allMessages) => {
     return recentMessages;
   }
 
-  const summary = await summarizeMessages(groq, olderMessages);
+  const summary = await summarizeMessages(provider, apiKeys, olderMessages);
   return [
     {
       role: 'system',
@@ -479,35 +596,43 @@ exports.sendMessage = async (req, res) => {
     if (!ALLOWED_MODELS.has(selectedTextModel)) {
       selectedTextModel = DEFAULT_TEXT_MODEL;
     }
-    const model = imageParts.length > 0 ? VISION_MODEL : selectedTextModel;
+    const provider = getProviderForModel(selectedTextModel);
+    const model = imageParts.length > 0
+      ? (provider === 'mistral' ? MISTRAL_VISION_MODEL : VISION_MODEL)
+      : selectedTextModel;
 
-    // Determine the Groq API key: use user's custom key if configured, otherwise fallback to system keys
-    let apiKey = null;
-    if (req.user?.groqApiKey && req.user?.groqApiKeyIv) {
+    // Select credentials for the requested provider. User-supplied keys remain
+    // Groq keys; the Mistral integration intentionally uses the server env key.
+    let apiKeys = [];
+    if (provider === 'mistral') {
+      apiKeys = getMistralKeys();
+    } else if (req.user?.groqApiKey && req.user?.groqApiKeyIv) {
       try {
-        apiKey = decrypt(req.user.groqApiKey, req.user.groqApiKeyIv);
+        const userApiKey = decrypt(req.user.groqApiKey, req.user.groqApiKeyIv);
+        if (userApiKey) apiKeys = [userApiKey];
       } catch (decryptError) {
         console.error('Failed to decrypt user Groq API key, falling back to system keys:', decryptError);
       }
     }
 
-    if (!apiKey) {
-      // Load balance Groq keys consistently by user ID
+    if (provider === 'groq' && apiKeys.length === 0) {
       const availableKeys = getGroqKeys();
-      apiKey = getApiKeyForUser(req.user?._id, availableKeys);
+      apiKeys = getApiKeysForRequest(req.user?._id, availableKeys);
     }
 
-    if (!apiKey) {
-      return res.status(500).json({ message: 'No Groq API keys configured on server.' });
+    if (apiKeys.length === 0) {
+      return res.status(500).json({
+        message: provider === 'mistral'
+          ? 'No Mistral API key configured on server.'
+          : 'No Groq API keys configured on server.'
+      });
     }
-
-    const groq = new Groq({ apiKey });
 
     // Fetch all messages after saving the current user message.
     // The latest 10 are sent verbatim; anything older is summarized.
     const allMessages = await Message.find({ chatId }).sort({ timestamp: 1 });
     let contextMessages = applyCurrentImagesToContext(
-      await buildContextMessages(groq, allMessages),
+      await buildContextMessages(provider, apiKeys, allMessages),
       imageParts
     );
     
@@ -524,7 +649,10 @@ exports.sendMessage = async (req, res) => {
     const startTime = Date.now();
     let result;
     try {
-      result = await groq.chat.completions.create({
+      result = await createProviderCompletion({
+        provider,
+        apiKeys,
+        model,
         messages: [
           {
             role: "system",
@@ -532,16 +660,26 @@ exports.sendMessage = async (req, res) => {
           },
           ...contextMessages
         ],
-        model,
       });
     } catch (groqError) {
-      console.error('------- GROQ API CRASH -------');
+      console.error(`------- ${provider.toUpperCase()} API CRASH -------`);
       console.error(groqError);
       console.error('--------------------------------');
-      return res.status(502).json({ message: 'Error from AI provider', details: groqError.message });
+      const providerStatus = getGroqErrorStatus(groqError);
+      const responseStatus = [400, 401, 402, 403, 404, 413, 422, 429].includes(providerStatus)
+        ? providerStatus
+        : 502;
+      return res.status(responseStatus).json({
+        message: providerStatus === 429
+          ? `${provider === 'mistral' ? 'Mistral' : 'Groq'} rate limit reached. Please wait a moment and try again.`
+          : 'Error from AI provider',
+        details: getGroqErrorMessage(groqError),
+        retryAfter: getGroqRetryAfter(groqError),
+      });
     }
     
-    let responseText = result.choices[0]?.message?.content || "Sorry, I couldn't generate a response.";
+    let responseText = normalizeAssistantContent(result.choices[0]?.message?.content)
+      || "Sorry, I couldn't generate a response.";
     // Remove <think>...</think> blocks from the model's response
     responseText = responseText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     
@@ -601,15 +739,18 @@ exports.sendAnonymousMessage = async (req, res) => {
     if (!ALLOWED_MODELS.has(selectedTextModel)) {
       selectedTextModel = DEFAULT_TEXT_MODEL;
     }
+    const provider = getProviderForModel(selectedTextModel);
 
-    // Load balance Groq keys
-    const availableKeys = getGroqKeys();
-    const apiKey = getApiKeyForUser(null, availableKeys); // anonymous guest has null userId
-    if (!apiKey) {
-      return res.status(500).json({ message: 'No Groq API keys configured on server.' });
+    const apiKeys = provider === 'mistral'
+      ? getMistralKeys()
+      : getApiKeysForRequest(null, getGroqKeys()); // anonymous guest has null userId
+    if (apiKeys.length === 0) {
+      return res.status(500).json({
+        message: provider === 'mistral'
+          ? 'No Mistral API key configured on server.'
+          : 'No Groq API keys configured on server.'
+      });
     }
-
-    const groq = new Groq({ apiKey });
 
     // Anonymous history lives in frontend state. Add the current message once,
     // then summarize older context if the conversation is longer than 10 messages.
@@ -617,7 +758,7 @@ exports.sendAnonymousMessage = async (req, res) => {
       ...history,
       { role: 'user', content },
     ];
-    let contextMessages = await buildContextMessages(groq, allMessages);
+    let contextMessages = await buildContextMessages(provider, apiKeys, allMessages);
     
     const isWebSearch = req.body.webSearch === 'true' || req.body.webSearch === true;
     if (isWebSearch && content) {
@@ -632,7 +773,10 @@ exports.sendAnonymousMessage = async (req, res) => {
     const startTime = Date.now();
     let result;
     try {
-      result = await groq.chat.completions.create({
+      result = await createProviderCompletion({
+        provider,
+        apiKeys,
+        model: selectedTextModel,
         messages: [
           {
             role: "system",
@@ -640,16 +784,26 @@ exports.sendAnonymousMessage = async (req, res) => {
           },
           ...contextMessages
         ],
-        model: selectedTextModel,
       });
     } catch (groqError) {
-      console.error('------- GROQ API CRASH -------');
+      console.error(`------- ${provider.toUpperCase()} API CRASH -------`);
       console.error(groqError);
       console.error('--------------------------------');
-      return res.status(502).json({ message: 'Error from AI provider', details: groqError.message });
+      const providerStatus = getGroqErrorStatus(groqError);
+      const responseStatus = [400, 401, 402, 403, 404, 413, 422, 429].includes(providerStatus)
+        ? providerStatus
+        : 502;
+      return res.status(responseStatus).json({
+        message: providerStatus === 429
+          ? `${provider === 'mistral' ? 'Mistral' : 'Groq'} rate limit reached. Please wait a moment and try again.`
+          : 'Error from AI provider',
+        details: getGroqErrorMessage(groqError),
+        retryAfter: getGroqRetryAfter(groqError),
+      });
     }
     
-    let responseText = result.choices[0]?.message?.content || "Sorry, I couldn't generate a response.";
+    let responseText = normalizeAssistantContent(result.choices[0]?.message?.content)
+      || "Sorry, I couldn't generate a response.";
     // Remove <think>...</think> blocks from the model's response
     responseText = responseText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 

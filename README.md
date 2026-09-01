@@ -7,12 +7,12 @@ NovaChat (CodeCoach) is a premium, full-stack AI Chat assistant application feat
 ## 🌟 Key Features
 
 ### 💬 AI Chat & Conversation Management
-* **Multiple LLM Integration**: Chat with various advanced open-source models using Groq:
-  * **Llama 3.3 70B** (`llama-3.3-70b-versatile`) - Capable and deep reasoning (Default)
-  * **Qwen 3 32B** (`qwen/qwen3-32b`) - Fast & capable instruction model
-  * **GPT OSS 20B** (`openai/gpt-oss-20b`) - Open-source equivalent model
-  * **Llama 3.1 8B** (`llama-3.1-8b-instant`) - Instant-speed general answers
-* **Multimodal Vision Analysis**: Automatically switches to the vision model (**Llama 3.2 11B Vision** - `llama-3.2-11b-vision-preview`) when image attachments are uploaded.
+* **Multiple LLM Integration**: Chat with current advanced open-source models using Groq:
+  * **GPT OSS 120B** (`openai/gpt-oss-120b`) - Most capable reasoning model
+  * **Qwen 3.6 27B** (`qwen/qwen3.6-27b`) - Fast text and vision model
+  * **GPT OSS 20B** (`openai/gpt-oss-20b`) - Fast general-purpose model (Default)
+* **Multimodal Vision Analysis**: Automatically switches to **Qwen 3.6 27B** (`qwen/qwen3.6-27b`) when image attachments are uploaded.
+* **Mistral Integration**: Select Mistral Large, Mistral Medium, Mistral Small, or Codestral using the server-side `MISTRAL_API_KEY`.
 * **Auto-Summarization**: Long conversations are summarized automatically on the backend (keeping only the last 10 messages verbatim) to prevent token overflow and optimize latency.
 * **Anonymous Guest Chat**: Public playground mode that runs client-side history without requiring an account.
 
@@ -33,7 +33,7 @@ NovaChat (CodeCoach) is a premium, full-stack AI Chat assistant application feat
 * Configurable daily generation limits (default: 3 images per user per day).
 
 ### 🔑 Security & Custom Configurations
-* **User-Provided API Keys**: Users can securely enter their own Groq API keys. Keys are encrypted on the backend database (using AES-256-GCM) and decrypted on demand, preventing default rate limit bottlenecks.
+* **User-Provided API Keys**: Users can securely enter their own Groq API keys. Keys are encrypted on the backend database (using AES-256-GCM) and decrypted on demand, preventing default rate limit bottlenecks. The Mistral key is configured server-side through `MISTRAL_API_KEY`.
 * **JWT-Based Authentication**: Secure sign-up, login, and token verification protocols.
 
 ### 🎨 Sleek Modern UI/UX

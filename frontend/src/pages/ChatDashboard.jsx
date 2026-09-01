@@ -54,7 +54,7 @@ function ChatDashboard() {
   const [fileError, setFileError] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
-  const [selectedModel, setSelectedModel] = useState('llama-3.3-70b-versatile');
+  const [selectedModel, setSelectedModel] = useState('openai/gpt-oss-20b');
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
   const actionMenuRef = useRef(null);
@@ -82,10 +82,13 @@ function ChatDashboard() {
   };
 
   const modelsList = [
-    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', desc: 'Capable and deep reasoning model' },
-    { id: 'qwen/qwen3-32b', name: 'Qwen 3 32B', desc: 'Fast & capable instruction model' },
-    { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', desc: 'Open source equivalent model' },
-    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', desc: 'Instant-speed general answers' },
+    { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', desc: 'Most capable reasoning model' },
+    { id: 'qwen/qwen3.6-27b', name: 'Qwen 3.6 27B', desc: 'Fast text and vision model' },
+    { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', desc: 'Fast general-purpose model' },
+    { id: 'mistral-large-latest', name: 'Mistral Large', desc: 'Advanced general-purpose model' },
+    { id: 'mistral-medium-latest', name: 'Mistral Medium', desc: 'Strong reasoning and coding model' },
+    { id: 'mistral-small-latest', name: 'Mistral Small', desc: 'Fast general-purpose model' },
+    { id: 'codestral-latest', name: 'Codestral', desc: 'Specialized coding model' },
   ];
 
   const navigate = useNavigate();
@@ -301,6 +304,7 @@ function ChatDashboard() {
         setMessages((prev) => [...prev, response.data.assistantMessage]);
         setCurrentChatId('anonymous');
       } catch (error) {
+        setFileError(error.response?.data?.details || error.response?.data?.message || 'Failed to send message');
         console.error('Failed to send anonymous message', error);
       } finally {
         setLoading(false);
@@ -363,7 +367,7 @@ function ChatDashboard() {
       });
       fetchChats();
     } catch (error) {
-      setFileError(error.response?.data?.message || 'Failed to send message');
+      setFileError(error.response?.data?.details || error.response?.data?.message || 'Failed to send message');
       console.error('Failed to send message', error);
     } finally {
       setLoading(false);
@@ -618,11 +622,13 @@ function ChatDashboard() {
                     <div className="message-footer">
                       {msg.role === 'assistant' && msg.metadata?.model && (
                         <div className="model-badge">
-                          {msg.metadata.model === 'llama-3.3-70b-versatile' ? 'Llama 3.3' :
-                           msg.metadata.model === 'qwen/qwen3-32b' ? 'Qwen 3 32B' :
+                          {msg.metadata.model === 'openai/gpt-oss-120b' ? 'GPT OSS 120B' :
+                           msg.metadata.model === 'qwen/qwen3.6-27b' ? 'Qwen 3.6 27B' :
                            msg.metadata.model === 'openai/gpt-oss-20b' ? 'GPT OSS 20B' :
-                           msg.metadata.model === 'llama-3.1-8b-instant' ? 'Llama 3.1' :
-                           msg.metadata.model === 'llama-3.2-11b-vision-preview' ? 'Llama 3.2 Vision' :
+                           msg.metadata.model === 'mistral-large-latest' ? 'Mistral Large' :
+                           msg.metadata.model === 'mistral-medium-latest' ? 'Mistral Medium' :
+                           msg.metadata.model === 'mistral-small-latest' ? 'Mistral Small' :
+                           msg.metadata.model === 'codestral-latest' ? 'Codestral' :
                            msg.metadata.model}
                         </div>
                       )}
